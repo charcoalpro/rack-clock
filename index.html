@@ -1,0 +1,517 @@
+<!DOCTYPE html>
+<html lang="en" data-mode="work" data-flare="0">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+<title>Rack Clock — Work &amp; Rest Timer</title>
+<meta name="description" content="A drift-proof work and rest timer for lifting. Works offline, keeps the screen awake, beeps when rest is over.">
+<meta name="theme-color" content="#0B0E11" id="themeColor">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Rack Clock">
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns%3D'http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg'%20viewBox%3D'0%200%20512%20512'%3E%3Crect%20width%3D'512'%20height%3D'512'%20rx%3D'104'%20fill%3D'%230B0E11'%2F%3E%3Ccircle%20cx%3D'256'%20cy%3D'286'%20r%3D'142'%20fill%3D'none'%20stroke%3D'%2326D9A3'%20stroke-width%3D'34'%20stroke-linecap%3D'round'%20stroke-dasharray%3D'670%201000'%20transform%3D'rotate(-96%20256%20286)'%2F%3E%3Crect%20x%3D'238'%20y%3D'176'%20width%3D'36'%20height%3D'122'%20rx%3D'18'%20fill%3D'%23EAF0F5'%2F%3E%3Crect%20x%3D'208'%20y%3D'58'%20width%3D'96'%20height%3D'42'%20rx%3D'21'%20fill%3D'%23EAF0F5'%2F%3E%3Crect%20x%3D'238'%20y%3D'92'%20width%3D'36'%20height%3D'34'%20fill%3D'%23EAF0F5'%2F%3E%3C%2Fsvg%3E">
+<link rel="apple-touch-icon" href="data:image/svg+xml,%3Csvg%20xmlns%3D'http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg'%20viewBox%3D'0%200%20512%20512'%3E%3Crect%20width%3D'512'%20height%3D'512'%20rx%3D'104'%20fill%3D'%230B0E11'%2F%3E%3Ccircle%20cx%3D'256'%20cy%3D'286'%20r%3D'142'%20fill%3D'none'%20stroke%3D'%2326D9A3'%20stroke-width%3D'34'%20stroke-linecap%3D'round'%20stroke-dasharray%3D'670%201000'%20transform%3D'rotate(-96%20256%20286)'%2F%3E%3Crect%20x%3D'238'%20y%3D'176'%20width%3D'36'%20height%3D'122'%20rx%3D'18'%20fill%3D'%23EAF0F5'%2F%3E%3Crect%20x%3D'208'%20y%3D'58'%20width%3D'96'%20height%3D'42'%20rx%3D'21'%20fill%3D'%23EAF0F5'%2F%3E%3Crect%20x%3D'238'%20y%3D'92'%20width%3D'36'%20height%3D'34'%20fill%3D'%23EAF0F5'%2F%3E%3C%2Fsvg%3E">
+
+<style>
+/* ---- tokens ---------------------------------------------------------- */
+:root{
+  --ink:#0B0E11; --panel:#141A20; --line:#212A34;
+  --chalk:#EAF0F5; --mute:#7B8894;
+  --acc:#26D9A3; --acc-ink:#04170F; --wash:#0E3229;
+  --pad:clamp(16px,5vw,28px);
+  --ui:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  --num:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,monospace;
+}
+html[data-mode="rest"]{--ink:#15100B;--panel:#1E1710;--line:#35271A;--acc:#FF7A2F;--acc-ink:#1A0A00;--wash:#3D1F09}
+html[data-mode="rest"][data-flare="1"]{--acc:#FF4438;--acc-ink:#1A0300;--wash:#3B1210}
+
+/* ---- reset ----------------------------------------------------------- */
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%}
+body{
+  background:var(--ink);color:var(--chalk);font-family:var(--ui);
+  -webkit-font-smoothing:antialiased;overscroll-behavior:none;
+  -webkit-tap-highlight-color:transparent;user-select:none;-webkit-user-select:none;
+  transition:background .5s ease;
+}
+button{font:inherit;color:inherit;background:none;border:0;cursor:pointer;touch-action:manipulation}
+button:focus-visible{outline:3px solid var(--acc);outline-offset:3px;border-radius:6px}
+
+/* ---- utilities -------------------------------------------------------
+   Each declares a disjoint set of properties, and no component rule below
+   re-declares any of them. Utilities therefore never silently lose the
+   cascade to a later single-class component rule.                        */
+.flex{display:flex}.ctr{align-items:center}.btw{justify-content:space-between}
+.tc{text-align:center}
+.mut{color:var(--mute)}
+.up{text-transform:uppercase;letter-spacing:.16em;font-weight:700}
+.f11{font-size:11px}.f12{font-size:12px}.f14{font-size:14px;line-height:1.45}
+.tab{font-family:var(--num);font-variant-numeric:tabular-nums}
+.mt12{margin-top:12px}.mt14{margin-top:14px}.mt26{margin-top:26px}
+
+/* ---- shell ----------------------------------------------------------- */
+.app{
+  min-height:100vh;min-height:100dvh;display:flex;flex-direction:column;
+  padding:calc(var(--pad) + env(safe-area-inset-top)) var(--pad)
+          calc(var(--pad) + env(safe-area-inset-bottom)) var(--pad);
+  max-width:560px;margin:0 auto;position:relative;z-index:1;
+}
+.tide{
+  position:fixed;left:0;right:0;bottom:0;height:0;z-index:0;pointer-events:none;
+  background:linear-gradient(to top,var(--wash),transparent);
+}
+
+/* ---- header ---------------------------------------------------------- */
+.brand{display:flex;align-items:center;gap:8px;color:var(--acc)}
+.brand svg{width:18px;height:18px;display:block}
+.ghost{border:1px solid var(--line);border-radius:999px;padding:8px 14px;font-size:13px;font-weight:600;color:var(--mute)}
+.ghost[data-armed="1"]{color:var(--acc);border-color:var(--acc)}
+
+/* ---- session ladder (signature) -------------------------------------- */
+.ladder{display:flex;align-items:flex-end;gap:7px;height:30px}
+.tick{flex:1;height:10px;border-radius:2px;background:var(--line);transition:height .2s,background .2s}
+.tick.major{height:22px}
+.tick.done{background:var(--acc)}
+.tick.next{background:var(--mute)}
+.ladder[data-live="1"] .tick.next{background:var(--acc);animation:blink 1.6s ease-in-out infinite}
+@keyframes blink{50%{opacity:.25}}
+
+/* ---- stage ----------------------------------------------------------- */
+.stage{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:24px 0}
+.state{
+  display:inline-flex;align-items:center;gap:9px;
+  border:1px solid var(--line);border-radius:999px;padding:7px 16px;color:var(--acc);
+  text-transform:uppercase;letter-spacing:.18em;font-size:12px;font-weight:800;
+}
+.dot{width:9px;height:9px;border-radius:50%;background:var(--acc);flex:none}
+.state.live .dot{animation:pulse 1.4s ease-in-out infinite}
+@keyframes pulse{50%{opacity:.2;transform:scale(.7)}}
+.clock{
+  font-size:clamp(5.2rem,27vw,10.5rem);font-weight:700;line-height:.94;
+  letter-spacing:-.055em;margin:18px 0 12px;color:var(--chalk);
+}
+.clock.long{font-size:clamp(3.6rem,19vw,7.4rem)} /* 100:00+ has 0.8px of slack otherwise */
+html[data-mode="rest"] .clock{color:var(--acc)}
+.hint{color:var(--mute);font-size:15px;max-width:24ch;text-align:center;line-height:1.45;min-height:2.9em}
+
+/* ---- controls -------------------------------------------------------- */
+.controls{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.btn{
+  min-height:82px;border-radius:20px;font-size:21px;font-weight:700;letter-spacing:.01em;
+  display:flex;align-items:center;justify-content:center;
+  transition:transform .08s ease;
+}
+.btn:active{transform:scale(.975)}
+.solid{background:var(--acc);color:var(--acc-ink)}
+.line{border:2px solid var(--line);color:var(--chalk);background:var(--panel)}
+
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+</style>
+</head>
+
+<body>
+<div class="tide" id="tide"></div>
+
+<div class="app">
+
+  <header class="flex ctr btw">
+    <div class="brand">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true">
+        <path d="M12 8v5"/><circle cx="12" cy="13.5" r="8"/><path d="M9.5 2h5"/>
+      </svg>
+      <span class="up f11">Rack Clock</span>
+    </div>
+    <button class="ghost" id="resetBtn" data-armed="0">Reset session</button>
+  </header>
+
+  <div class="ladder mt26" id="ladder" data-live="0" aria-hidden="true"></div>
+  <p class="f14 mut mt12" id="meta">Session 0 · Next: 1m rest</p>
+
+  <main class="stage">
+    <div class="state" id="state" aria-live="polite"><span class="dot"></span><span id="stateText">Ready</span></div>
+    <div class="clock tab" id="clock" role="timer" aria-live="off">00:00</div>
+    <p class="hint" id="hint">Start the clock when you step under the bar.</p>
+  </main>
+
+  <div class="controls">
+    <button class="btn solid" id="primary">Start</button>
+    <button class="btn line" id="secondary">Rest</button>
+  </div>
+  <p class="up f12 tc mut mt14" id="foot">Every 3rd rest is a 3-minute big rest</p>
+
+</div>
+
+<script>
+(function(){
+  'use strict';
+
+  /* ==================================================================== *
+   * ARCHITECTURE
+   *   State is a plain object. Actions mutate state ONLY — they never
+   *   touch the DOM, the wake lock, storage or the frame loop. Every
+   *   action ends in commit(), which runs the effect pass exactly once.
+   *   That is what stops composed actions (startRest freezing the work
+   *   clock) from replaying each other's side effects.
+   *
+   *     commit()  cold path: repaint + lock sync + persist + pump
+   *     render()  hot path : digits and tide only, pure, once per frame
+   *     expire()  the one place a rest is allowed to end
+   *
+   *   All timing derives from absolute Date.now() stamps, so throttled
+   *   frames, a backgrounded tab, and a killed-and-relaunched app all
+   *   recover the correct value instead of accumulating drift.
+   * ==================================================================== */
+
+  var SHORT = 60000, BIG = 180000, CYCLE = 3, LADDER = 12;
+  var STORE = 'rackclock.v1';
+  var STALE   = 4 * 3600000;  // discard a saved workout older than this
+  var MAX_SET = 2 * 3600000;  // a work clock this long means the app was killed mid-set
+  var LATE    = 5000;         // don't beep for a rest that ended this long ago
+
+  var S = {
+    mode: 'work',      // 'work' | 'rest'
+    running: false,
+    elapsed: 0,        // banked work ms
+    resumedAt: 0,      // Date.now() at last resume
+    sessions: 0,
+    restEndsAt: 0,
+    restTotal: 0,
+    note: ''           // one-shot message for the hint line
+  };
+
+  var $ = function(id){ return document.getElementById(id); };
+  var html = document.documentElement,
+      clock = $('clock'), stateEl = $('state'), stateText = $('stateText'),
+      hint = $('hint'), meta = $('meta'), ladder = $('ladder'), tide = $('tide'),
+      primary = $('primary'), secondary = $('secondary'), resetBtn = $('resetBtn'),
+      foot = $('foot'), themeColor = $('themeColor');
+
+  var lastSessions = -1, lastClock = null, raf = 0, armTimer = 0;
+
+  /* ---------------- derived values ------------------------------------ */
+  function workMs(){ return S.running ? S.elapsed + (Date.now() - S.resumedAt) : S.elapsed; }
+  function restLeft(){ return S.mode === 'rest' ? Math.max(0, S.restEndsAt - Date.now()) : 0; }
+  function nextIsBig(){ return (S.sessions + 1) % CYCLE === 0; }
+  function wantsLock(){ return S.running || S.mode === 'rest'; }
+
+  function fmt(sec){
+    var m = Math.floor(sec / 60), s = sec % 60;
+    return (m < 10 ? '0' : '') + m + ':' + (s < 10 ? '0' : '') + s;
+  }
+  function restLabel(){
+    if(S.restTotal === BIG)   return '3m big rest';
+    if(S.restTotal === SHORT) return '1m rest';
+    return fmt(Math.round(S.restTotal / 1000)) + ' rest';
+  }
+
+  /* ---------------- audio --------------------------------------------- */
+  var ac = null, primed = false;
+
+  function unlockAudio(){
+    try{
+      if(!ac){
+        var Ctx = window.AudioContext || window.webkitAudioContext;
+        if(!Ctx) return;
+        ac = new Ctx();
+      }
+      if(ac.state === 'suspended') ac.resume();
+      if(!primed){
+        // A one-sample silent buffer is what actually satisfies iOS. Once is enough.
+        var src = ac.createBufferSource();
+        src.buffer = ac.createBuffer(1, 1, 22050);
+        src.connect(ac.destination);
+        src.start(0);
+        primed = true;
+      }
+    }catch(e){}
+  }
+  document.addEventListener('pointerdown', unlockAudio, true);
+  document.addEventListener('touchstart', unlockAudio, true);
+
+  function tone(at, freq, dur){
+    var osc = ac.createOscillator(), gain = ac.createGain();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(freq, at);
+    gain.gain.setValueAtTime(0.0001, at);
+    gain.gain.exponentialRampToValueAtTime(0.55, at + 0.012);
+    gain.gain.exponentialRampToValueAtTime(0.0001, at + dur);
+    osc.connect(gain); gain.connect(ac.destination);
+    osc.start(at); osc.stop(at + dur + 0.03);
+  }
+
+  function beep(){
+    try{
+      if(!ac || ac.state === 'suspended') unlockAudio();
+      if(!ac) return;
+      var t = ac.currentTime + 0.03;
+      tone(t,        880,  0.13);
+      tone(t + 0.22, 880,  0.13);
+      tone(t + 0.44, 1320, 0.34);
+    }catch(e){}
+    if(navigator.vibrate) navigator.vibrate([130,90,130,90,260]);
+  }
+
+  /* ---------------- wake lock ----------------------------------------- */
+  /* Guarded against re-entry: request() is async, so an unguarded caller
+     can issue several and leak every sentinel except the last. */
+  var lock = null, lockBusy = false;
+
+  function syncLock(){
+    if(!('wakeLock' in navigator)) return;
+
+    if(!wantsLock()){
+      if(lock){ var held = lock; lock = null; held.release().catch(function(){}); }
+      return;
+    }
+    if(lock || lockBusy || document.visibilityState !== 'visible') return;
+
+    lockBusy = true;
+    navigator.wakeLock.request('screen').then(function(l){
+      lockBusy = false;
+      if(!wantsLock()){ l.release().catch(function(){}); return; }   // state moved on
+      lock = l;
+      l.addEventListener('release', function(){ lock = null; });
+    }).catch(function(){ lockBusy = false; });
+  }
+
+  /* ---------------- persistence --------------------------------------- */
+  function save(){
+    try{
+      localStorage.setItem(STORE, JSON.stringify({
+        v:1, m:S.mode, r:S.running, e:S.elapsed, a:S.resumedAt,
+        s:S.sessions, x:S.restEndsAt, t:S.restTotal, w:Date.now()
+      }));
+    }catch(e){}
+  }
+
+  function restore(){
+    var d;
+    try{ d = JSON.parse(localStorage.getItem(STORE) || 'null'); }catch(e){ return; }
+    if(!d || d.v !== 1 || (Date.now() - (d.w || 0)) > STALE) return;
+
+    // localStorage is user-writable and survives across app versions, so every
+    // field is coerced and clamped rather than trusted.
+    var num = function(x, min, max){
+      x = Number(x);
+      return isFinite(x) ? Math.min(max, Math.max(min, Math.round(x))) : min;
+    };
+    var MAXDATE = 8.64e15;
+
+    S.sessions   = num(d.s, 0, 999999);
+    S.elapsed    = num(d.e, 0, MAX_SET);
+    S.resumedAt  = num(d.a, 0, MAXDATE);
+    S.running    = !!d.r;
+    S.mode       = d.m === 'rest' ? 'rest' : 'work';
+    S.restEndsAt = num(d.x, 0, MAXDATE);
+    S.restTotal  = num(d.t, 0, 4 * 3600000);
+
+    if(S.running && !S.resumedAt) S.running = false;
+
+    if(S.mode === 'rest'){
+      if(S.restTotal <= 0 || S.restEndsAt <= 0){
+        clearRest();                                 // incoherent record, drop it
+      }else if(Date.now() >= S.restEndsAt){
+        clearRest();                                 // expired while the app was gone
+        S.note = 'Rest finished while you were away.';
+      }
+    }else if(workMs() > MAX_SET){
+      S.running = false; S.elapsed = 0;              // nobody holds a set for two hours
+      S.note = 'Picked up where you left off. Work clock cleared.';
+    }
+  }
+
+  /* ---------------- actions: mutate state, then commit ----------------- */
+  function clearRest(){
+    S.mode = 'work'; S.running = false;
+    S.elapsed = 0; S.resumedAt = 0;
+    S.restEndsAt = 0; S.restTotal = 0;
+  }
+
+  function startWork(){ S.note = ''; S.running = true; S.resumedAt = Date.now(); commit(); }
+  function pauseWork(){ S.note = ''; S.elapsed = workMs(); S.running = false; commit(); }
+
+  function startRest(){
+    S.note = '';
+    S.elapsed = workMs(); S.running = false;         // freeze; no intermediate commit
+    S.sessions += 1;
+    S.restTotal  = (S.sessions % CYCLE === 0) ? BIG : SHORT;
+    S.restEndsAt = Date.now() + S.restTotal;
+    S.mode = 'rest';
+    commit();
+  }
+
+  function extendRest(ms){
+    if(S.mode !== 'rest') return;
+    S.restEndsAt += ms; S.restTotal += ms;
+    commit();
+  }
+
+  // Hands back a fresh, paused work clock at 00:00.
+  function finishRest(sound){
+    var overdue = Date.now() - S.restEndsAt;
+    clearRest();
+    if(sound){
+      if(overdue <= LATE) beep();                    // silence a beep nobody is waiting for
+      else S.note = 'Rest finished while you were away.';
+    }
+    commit();
+  }
+
+  function resetAll(){
+    clearRest(); S.sessions = 0; S.note = '';
+    try{ localStorage.removeItem(STORE); }catch(e){}
+    commit();
+  }
+
+  /* ---------------- effects ------------------------------------------- */
+  function commit(){ paint(); syncLock(); save(); pump(); }
+
+  function drawLadder(){
+    if(S.sessions === lastSessions) return;
+    lastSessions = S.sessions;
+    var base = Math.floor(S.sessions / LADDER) * LADDER, out = '';
+    for(var i = 1; i <= LADDER; i++){
+      var n = base + i, c = 'tick';
+      if(n % CYCLE === 0) c += ' major';
+      if(n <= S.sessions) c += ' done';
+      else if(n === S.sessions + 1) c += ' next';
+      out += '<i class="' + c + '"></i>';
+    }
+    ladder.innerHTML = out;
+  }
+
+  function paint(){
+    var resting = S.mode === 'rest';
+    html.setAttribute('data-mode', resting ? 'rest' : 'work');
+    themeColor.setAttribute('content', resting ? '#15100B' : '#0B0E11');
+
+    if(resting){
+      stateText.textContent = S.restTotal >= BIG ? 'Big rest' : 'Resting';
+      hint.textContent = S.restTotal >= BIG
+        ? 'Long one. The work clock resets at zero.'
+        : 'The work clock resets at zero.';
+      primary.textContent   = 'Skip rest';
+      secondary.textContent = 'Add 30s';
+      meta.textContent = 'Session ' + S.sessions + ' · ' + restLabel() + ' running';
+      foot.textContent = 'Rest ends with three beeps';
+    }else{
+      stateText.textContent = S.running ? 'Working' : (S.elapsed > 0 ? 'Paused' : 'Ready');
+      hint.textContent = S.note || (S.running
+        ? 'Hit Rest the moment the set is done.'
+        : (S.elapsed > 0 ? 'Hit Start to pick the set back up.'
+                         : 'Start the clock when you step under the bar.'));
+      primary.textContent   = S.running ? 'Pause' : 'Start';
+      secondary.textContent = 'Rest';
+      meta.textContent = 'Session ' + S.sessions + ' · Next: ' + (nextIsBig() ? '3m big rest' : '1m rest');
+      foot.textContent = 'Every 3rd rest is a 3-minute big rest';
+    }
+
+    stateEl.classList.toggle('live', S.running || resting);
+    ladder.setAttribute('data-live', (nextIsBig() && !resting) ? '1' : '0');
+    disarmReset();
+    drawLadder();
+  }
+
+  /* render() is a pure function of state. It writes the DOM and never
+     transitions — that is expire()'s only job. Keeping the two apart is
+     what stops a repaint from re-entering commit() through the back door. */
+  function render(){
+    var text, flare = '0';
+
+    if(S.mode === 'rest'){
+      var left = restLeft();
+      text = fmt(Math.ceil(left / 1000));
+      if(left <= 10000) flare = '1';
+      tide.style.height = (S.restTotal > 0 ? left / S.restTotal * 100 : 0) + '%';
+    }else{
+      text = fmt(Math.floor(workMs() / 1000));
+      tide.style.height = '0%';
+    }
+
+    if(text !== lastClock){
+      lastClock = text;
+      clock.textContent = text;
+      clock.classList.toggle('long', text.length > 5);
+    }
+    if(html.getAttribute('data-flare') !== flare) html.setAttribute('data-flare', flare);
+  }
+
+  // The single place a rest is allowed to end. Returns true if it did.
+  function expire(){
+    if(S.mode === 'rest' && restLeft() <= 0){ finishRest(true); return true; }
+    return false;
+  }
+
+  /* Renders exactly once, then keeps rendering only while a clock is live.
+     paint() deliberately does NOT render, so a commit produces one render. */
+  function pump(){
+    cancelAnimationFrame(raf); raf = 0;
+    (function loop(){
+      if(expire()) return;                           // finishRest commits, which re-pumps
+      render();
+      raf = (S.running || S.mode === 'rest') ? requestAnimationFrame(loop) : 0;
+    })();
+  }
+
+  /* ---------------- input --------------------------------------------- */
+  function disarmReset(){
+    clearTimeout(armTimer);
+    resetBtn.setAttribute('data-armed', '0');
+    resetBtn.textContent = 'Reset session';
+  }
+
+  primary.addEventListener('click', function(){
+    unlockAudio();
+    if(S.mode === 'rest') finishRest(false);
+    else if(S.running) pauseWork();
+    else startWork();
+  });
+
+  secondary.addEventListener('click', function(){
+    unlockAudio();
+    if(S.mode === 'rest') extendRest(30000);
+    else startRest();
+  });
+
+  resetBtn.addEventListener('click', function(){
+    unlockAudio();
+    if(resetBtn.getAttribute('data-armed') === '1'){ resetAll(); return; }
+    resetBtn.setAttribute('data-armed', '1');
+    resetBtn.textContent = 'Tap again to clear';
+    clearTimeout(armTimer);
+    armTimer = setTimeout(disarmReset, 3000);
+  });
+
+  /* Space already activates a focused button natively — don't fire twice. */
+  document.addEventListener('keydown', function(e){
+    var onButton = e.target && e.target.tagName === 'BUTTON';
+    if(onButton) return;
+    if(e.code === 'Space'){ e.preventDefault(); primary.click(); }
+    else if(e.key === 'r' || e.key === 'R') secondary.click();
+  });
+
+  /* Back from the background: recompute from wall-clock time, catch a rest
+     that expired while hidden, and take the wake lock back. */
+  document.addEventListener('visibilitychange', function(){
+    if(document.visibilityState !== 'visible') return;
+    if(ac && ac.state === 'suspended') ac.resume();  // iOS suspends the context on background
+    syncLock();
+    pump();                                          // renders, and ends an expired rest
+  });
+
+  window.addEventListener('pagehide', save);
+
+  restore();
+  commit();
+
+  if('serviceWorker' in navigator){
+    window.addEventListener('load', function(){
+      navigator.serviceWorker.register('sw.js').catch(function(){});
+    });
+  }
+})();
+</script>
+</body>
+</html>

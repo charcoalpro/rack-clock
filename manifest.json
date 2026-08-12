@@ -1,0 +1,31 @@
+{
+  "name": "Rack Clock — Work & Rest Timer",
+  "short_name": "Rack Clock",
+  "description": "A drift-proof work and rest timer for lifting. Works offline, keeps the screen awake, beeps when rest is over.",
+  "id": "/",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0B0E11",
+  "theme_color": "#0B0E11",
+  "categories": [
+    "health",
+    "fitness",
+    "utilities"
+  ],
+  "icons": [
+    {
+      "src": "data:image/svg+xml,%3Csvg%20xmlns%3D'http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg'%20viewBox%3D'0%200%20512%20512'%3E%3Crect%20width%3D'512'%20height%3D'512'%20rx%3D'104'%20fill%3D'%230B0E11'%2F%3E%3Ccircle%20cx%3D'256'%20cy%3D'286'%20r%3D'142'%20fill%3D'none'%20stroke%3D'%2326D9A3'%20stroke-width%3D'34'%20stroke-linecap%3D'round'%20stroke-dasharray%3D'670%201000'%20transform%3D'rotate(-96%20256%20286)'%2F%3E%3Crect%20x%3D'238'%20y%3D'176'%20width%3D'36'%20height%3D'122'%20rx%3D'18'%20fill%3D'%23EAF0F5'%2F%3E%3Crect%20x%3D'208'%20y%3D'58'%20width%3D'96'%20height%3D'42'%20rx%3D'21'%20fill%3D'%23EAF0F5'%2F%3E%3Crect%20x%3D'238'%20y%3D'92'%20width%3D'36'%20height%3D'34'%20fill%3D'%23EAF0F5'%2F%3E%3C%2Fsvg%3E",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "data:image/svg+xml,%3Csvg%20xmlns%3D'http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg'%20viewBox%3D'0%200%20512%20512'%3E%3Crect%20width%3D'512'%20height%3D'512'%20fill%3D'%230B0E11'%2F%3E%3Ccircle%20cx%3D'256'%20cy%3D'276'%20r%3D'112'%20fill%3D'none'%20stroke%3D'%2326D9A3'%20stroke-width%3D'28'%20stroke-linecap%3D'round'%20stroke-dasharray%3D'528%201000'%20transform%3D'rotate(-96%20256%20276)'%2F%3E%3Crect%20x%3D'241'%20y%3D'186'%20width%3D'30'%20height%3D'100'%20rx%3D'15'%20fill%3D'%23EAF0F5'%2F%3E%3Crect%20x%3D'216'%20y%3D'118'%20width%3D'80'%20height%3D'36'%20rx%3D'18'%20fill%3D'%23EAF0F5'%2F%3E%3Crect%20x%3D'241'%20y%3D'146'%20width%3D'30'%20height%3D'30'%20fill%3D'%23EAF0F5'%2F%3E%3C%2Fsvg%3E",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "maskable"
+    }
+  ]
+}
