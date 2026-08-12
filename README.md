@@ -15,6 +15,10 @@ _headers        Cloudflare Pages edge cache + security headers
 
 The row of graduation marks under the header is the session ladder: filled marks are sets you've banked, and every third mark is tall — that's a big rest. The upcoming mark blinks when the next rest is the long one.
 
+The shell is height-capped at `100dvh` and never scrolls — a timer you have to scroll to read is useless mid-set. The clock is sized `min(27vw, 20dvh)` so height binds on a landscape phone, and two `max-height` breakpoints drop the footer, then the ladder and hint, rather than let anything spill. Verified at 20 viewport sizes from 240×320 up.
+
+If the app isn't installed, a bar takes the footer's slot offering to install it — a real `beforeinstallprompt` button on Chromium, the Share → Add to Home Screen recipe on iOS, which has no programmatic install. Dismissing it is remembered in `rackclock.install-dismissed`, so it asks once.
+
 ## Architecture
 
 State is a plain object. Actions mutate state only — they never touch the DOM, the wake lock, storage or the frame loop. Each action ends in `commit()`, which runs the effect pass exactly once:

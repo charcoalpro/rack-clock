@@ -32,7 +32,7 @@ html[data-mode="rest"][data-flare="1"]{--acc:#FF4438;--acc-ink:#1A0300;--wash:#3
 html,body{height:100%}
 body{
   background:var(--ink);color:var(--chalk);font-family:var(--ui);
-  -webkit-font-smoothing:antialiased;overscroll-behavior:none;
+  -webkit-font-smoothing:antialiased;overscroll-behavior:none;overflow:hidden;
   -webkit-tap-highlight-color:transparent;user-select:none;-webkit-user-select:none;
   transition:background .5s ease;
 }
@@ -52,8 +52,10 @@ button:focus-visible{outline:3px solid var(--acc);outline-offset:3px;border-radi
 .mt12{margin-top:12px}.mt14{margin-top:14px}.mt26{margin-top:26px}
 
 /* ---- shell ----------------------------------------------------------- */
+/* Height-capped, never scrolled: a timer you have to scroll to read is
+   useless mid-set. Everything below is sized to fit inside this box. */
 .app{
-  min-height:100vh;min-height:100dvh;display:flex;flex-direction:column;
+  height:100vh;height:100dvh;display:flex;flex-direction:column;
   padding:calc(var(--pad) + env(safe-area-inset-top)) var(--pad)
           calc(var(--pad) + env(safe-area-inset-bottom)) var(--pad);
   max-width:560px;margin:0 auto;position:relative;z-index:1;
@@ -88,11 +90,14 @@ button:focus-visible{outline:3px solid var(--acc);outline-offset:3px;border-radi
 .dot{width:9px;height:9px;border-radius:50%;background:var(--acc);flex:none}
 .state.live .dot{animation:pulse 1.4s ease-in-out infinite}
 @keyframes pulse{50%{opacity:.2;transform:scale(.7)}}
+/* min(vw,dvh) is what keeps a wide-but-short window from blowing the shell
+   open: on a landscape phone the height is the binding constraint, not the
+   width. Without it the digits alone overflow the viewport by ~230px. */
 .clock{
-  font-size:clamp(5.2rem,27vw,10.5rem);font-weight:700;line-height:.94;
+  font-size:clamp(2.6rem,min(27vw,20dvh),10.5rem);font-weight:700;line-height:.94;
   letter-spacing:-.055em;margin:18px 0 12px;color:var(--chalk);
 }
-.clock.long{font-size:clamp(3.6rem,19vw,7.4rem)} /* 100:00+ has 0.8px of slack otherwise */
+.clock.long{font-size:clamp(2rem,min(19vw,14dvh),7.4rem)} /* 100:00+ has 0.8px of slack otherwise */
 html[data-mode="rest"] .clock{color:var(--acc)}
 .hint{color:var(--mute);font-size:15px;max-width:24ch;text-align:center;line-height:1.45;min-height:2.9em}
 
@@ -106,6 +111,41 @@ html[data-mode="rest"] .clock{color:var(--acc)}
 .btn:active{transform:scale(.975)}
 .solid{background:var(--acc);color:var(--acc-ink)}
 .line{border:2px solid var(--line);color:var(--chalk);background:var(--panel)}
+
+/* ---- install prompt --------------------------------------------------- */
+/* Takes the footer line's slot rather than overlaying the controls, so it
+   costs the layout ~14px and can never put a scrollbar on the shell. */
+.install{
+  display:flex;align-items:center;gap:10px;
+  border:1px solid var(--line);border-radius:14px;background:var(--panel);
+  padding:10px 10px 10px 14px;
+}
+.install[hidden]{display:none}
+.install span{flex:1;font-size:13px;line-height:1.35;color:var(--mute)}
+.install .go{
+  flex:none;background:var(--acc);color:var(--acc-ink);
+  border-radius:10px;padding:9px 15px;font-size:13px;font-weight:700;
+}
+.install .no{flex:none;color:var(--mute);font-size:22px;line-height:1;padding:2px 8px}
+
+/* ---- short viewports -------------------------------------------------- */
+/* Landscape phones and small desktop windows: the shell is height-capped,
+   so whatever cannot fit has to give. The clock and the controls stay. */
+@media (max-height:600px){
+  :root{--pad:12px}
+  .stage{padding:0}
+  .ladder{margin-top:14px}
+  .clock{margin:10px 0 8px}
+  .hint{min-height:0}
+  .btn{min-height:56px;font-size:18px}
+  #foot{display:none}
+}
+/* Landscape phones. Clock, session count and controls survive; nothing else
+   fits, and an install bar is not what someone wants at 320px of height. */
+@media (max-height:430px){
+  .ladder,.hint,.install{display:none}
+  .btn{min-height:48px;font-size:16px}
+}
 
 @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
 </style>
@@ -140,6 +180,12 @@ html[data-mode="rest"] .clock{color:var(--acc)}
     <button class="btn line" id="secondary">Rest</button>
   </div>
   <p class="up f12 tc mut mt14" id="foot">Every 3rd rest is a 3-minute big rest</p>
+
+  <div class="install mt14" id="install" hidden>
+    <span id="installText"></span>
+    <button class="go" id="installGo" hidden>Install</button>
+    <button class="no" id="installNo" aria-label="Not now">&times;</button>
+  </div>
 
 </div>
 
@@ -505,6 +551,61 @@ html[data-mode="rest"] .clock{color:var(--acc)}
 
   restore();
   commit();
+
+  /* ---------------- install prompt ------------------------------------ *
+   * Chromium fires beforeinstallprompt and hands over a real prompt();
+   * iOS has no programmatic install at all, so it gets the manual recipe.
+   * Neither branch runs once the app is installed, and the bar takes the
+   * footer line's slot rather than overlaying the controls — the shell is
+   * height-capped and must not gain a scrollbar.
+   * ==================================================================== */
+  var INSTALL_OFF = 'rackclock.install-dismissed';
+  var installBar = $('install'), installText = $('installText'),
+      installGo = $('installGo'), installNo = $('installNo'), deferred = null;
+
+  function isInstalled(){
+    return matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
+  }
+
+  function showInstall(text, evt){
+    if(isInstalled()) return;
+    try{ if(localStorage.getItem(INSTALL_OFF)) return; }catch(e){}
+    deferred = evt || null;
+    installText.textContent = text;
+    installGo.hidden = !evt;
+    installBar.hidden = false;
+    foot.hidden = true;
+  }
+
+  function hideInstall(remember){
+    installBar.hidden = true;
+    foot.hidden = false;
+    deferred = null;
+    if(remember){ try{ localStorage.setItem(INSTALL_OFF, '1'); }catch(e){} }
+  }
+
+  window.addEventListener('beforeinstallprompt', function(e){
+    e.preventDefault();                              // keep the browser's own banner out of the way
+    showInstall('Install Rack Clock — full screen, works offline.', e);
+  });
+  window.addEventListener('appinstalled', function(){ hideInstall(false); });
+
+  installGo.addEventListener('click', function(){
+    if(!deferred){ hideInstall(true); return; }
+    var e = deferred;
+    hideInstall(false);                              // the browser's own dialog takes over
+    e.prompt();
+    // Accepted or dismissed, the question has been asked. Remember it so the
+    // bar shows once rather than on every launch.
+    e.userChoice.then(function(){ hideInstall(true); }).catch(function(){});
+  });
+
+  installNo.addEventListener('click', function(){ hideInstall(true); });
+
+  // Nothing else will offer this on iOS, so the recipe is the whole feature.
+  if(/iphone|ipad|ipod/i.test(navigator.userAgent)){
+    showInstall('Add to Home Screen from the Share menu — full screen, works offline.', null);
+  }
 
   if('serviceWorker' in navigator){
     window.addEventListener('load', function(){
