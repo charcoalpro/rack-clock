@@ -38,6 +38,12 @@ Keeping effects out of the actions is what stops composed actions from replaying
 
 State is persisted on every commit and on `pagehide`. A relaunch inside 4 hours resumes the workout; a rest that expired while the app was gone resets silently instead of beeping at someone who is no longer waiting for it.
 
+## The background beep
+
+A hidden tab gets no animation frames and its timers are throttled to roughly once a minute, so nothing on the main thread can be trusted to fire at 00:00. The audio thread can: an oscillator scheduled against an absolute `AudioContext` time plays on the audio clock, which keeps running while the tab is hidden. So the entire rest's chime is scheduled the moment the rest starts, 60 or 180 seconds ahead, and `commit()` re-aims it whenever `restEndsAt` moves — skip, extend and reset all reschedule for free, because they all end in a commit.
+
+`onended` on the last tone records that it actually played, so returning to the app does not beep a second time. iOS suspends the context on background, freezing that clock; there the chime cannot play, `sounded` stays false, and the old behaviour stands — a catch-up beep if you return within 5 seconds, the "while you were away" note if you don't. The stale schedule is dropped before the context resumes, or it would fire at the wrong moment on return.
+
 ## Deploy
 
 ### 1. Push to GitHub

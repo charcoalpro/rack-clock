@@ -273,8 +273,11 @@ html[data-mode="rest"] .clock{color:var(--acc)}
       }
     }catch(e){}
   }
-  document.addEventListener('pointerdown', unlockAudio, true);
-  document.addEventListener('touchstart', unlockAudio, true);
+  // Re-aim the scheduled chime too: a context that was blocked at rest start
+  // can only be unlocked by a gesture, and this is that gesture.
+  function onGesture(){ unlockAudio(); scheduleChime(); }
+  document.addEventListener('pointerdown', onGesture, true);
+  document.addEventListener('touchstart', onGesture, true);
 
   function tone(at, freq, dur){
     var osc = ac.createOscillator(), gain = ac.createGain();
@@ -285,16 +288,55 @@ html[data-mode="rest"] .clock{color:var(--acc)}
     gain.gain.exponentialRampToValueAtTime(0.0001, at + dur);
     osc.connect(gain); gain.connect(ac.destination);
     osc.start(at); osc.stop(at + dur + 0.03);
+    return { osc: osc, gain: gain };
+  }
+
+  // The three-tone figure, from an absolute AudioContext time.
+  function chime(at){
+    return [ tone(at, 880, 0.13), tone(at + 0.22, 880, 0.13), tone(at + 0.44, 1320, 0.34) ];
+  }
+
+  /* ---------------- the background beep -------------------------------- *
+   * A hidden tab gets no animation frames and its timers are throttled to
+   * a minute, so nothing on the main thread can reliably fire at 00:00.
+   * The audio thread can: an oscillator scheduled against an absolute
+   * AudioContext time plays on the audio clock, which keeps running while
+   * the tab is hidden. So the whole rest's beep is scheduled the moment the
+   * rest starts, and commit() re-aims it whenever restEndsAt moves.
+   *
+   * iOS suspends the context on background, freezing that clock — there the
+   * chime cannot play, `sounded` stays false, and expire() falls back to the
+   * catch-up beep or the note on return, exactly as before.
+   * ==================================================================== */
+  var pendingChime = [], sounded = false;
+
+  function cancelChime(){
+    for(var i = 0; i < pendingChime.length; i++){
+      // Disconnecting guarantees silence whether or not the node has started.
+      try{ pendingChime[i].gain.disconnect(); pendingChime[i].osc.stop(0); }catch(e){}
+    }
+    pendingChime = [];
+  }
+
+  function scheduleChime(){
+    cancelChime();
+    if(S.mode !== 'rest'){ sounded = false; return; }
+    if(!ac || ac.state !== 'running') return;     // no unlocked context yet
+    var lead = restLeft() / 1000;
+    if(lead <= 0) return;
+    sounded = false;
+    try{
+      pendingChime = chime(ac.currentTime + lead);
+      // The audio thread owns the moment now; this only records that it came.
+      pendingChime[pendingChime.length - 1].osc.onended = function(){ sounded = true; };
+    }catch(e){ pendingChime = []; }
   }
 
   function beep(){
     try{
       if(!ac || ac.state === 'suspended') unlockAudio();
       if(!ac) return;
-      var t = ac.currentTime + 0.03;
-      tone(t,        880,  0.13);
-      tone(t + 0.22, 880,  0.13);
-      tone(t + 0.44, 1320, 0.34);
+      chime(ac.currentTime + 0.03);
     }catch(e){}
     if(navigator.vibrate) navigator.vibrate([130,90,130,90,260]);
   }
@@ -397,10 +439,11 @@ html[data-mode="rest"] .clock{color:var(--acc)}
   // Hands back a fresh, paused work clock at 00:00.
   function finishRest(sound){
     var overdue = Date.now() - S.restEndsAt;
+    var already = sounded;                           // the scheduled chime already played
     clearRest();
     if(sound){
-      if(overdue <= LATE) beep();                    // silence a beep nobody is waiting for
-      else S.note = 'Rest finished while you were away.';
+      if(!already && overdue <= LATE) beep();        // silence a beep nobody is waiting for
+      else if(overdue > LATE) S.note = 'Rest finished while you were away.';
     }
     commit();
   }
@@ -412,7 +455,7 @@ html[data-mode="rest"] .clock{color:var(--acc)}
   }
 
   /* ---------------- effects ------------------------------------------- */
-  function commit(){ paint(); syncLock(); save(); pump(); }
+  function commit(){ paint(); syncLock(); scheduleChime(); save(); pump(); }
 
   function drawLadder(){
     if(S.sessions === lastSessions) return;
@@ -542,9 +585,15 @@ html[data-mode="rest"] .clock{color:var(--acc)}
      that expired while hidden, and take the wake lock back. */
   document.addEventListener('visibilitychange', function(){
     if(document.visibilityState !== 'visible') return;
-    if(ac && ac.state === 'suspended') ac.resume();  // iOS suspends the context on background
+    if(ac && ac.state === 'suspended'){               // iOS suspends the context on background
+      // Its clock stopped with the chime still queued, so resuming would fire
+      // that at the wrong moment. Drop it first; scheduleChime() re-aims.
+      cancelChime();
+      ac.resume();
+    }
     syncLock();
     pump();                                          // renders, and ends an expired rest
+    scheduleChime();                                 // rest survived: re-aim at the real end
   });
 
   window.addEventListener('pagehide', save);
