@@ -1,7 +1,7 @@
 /* Rack Clock — cache-first service worker.
    Bump CACHE on every deploy: that single string is the whole release process. */
 
-const CACHE = 'rack-clock-v3';
+const CACHE = 'rack-clock-v4';
 
 const PRECACHE = [
   './',
@@ -24,6 +24,21 @@ self.addEventListener('activate', event => {
         keys.filter(key => key !== CACHE).map(key => caches.delete(key))
       ))
       .then(() => self.clients.claim())
+  );
+});
+
+// A notification you cannot tap your way back from is half a feature.
+// Reuse the open window if there is one; the app is a single shell.
+self.addEventListener('notificationclick', event => {
+  event.notification.close();
+  event.waitUntil(
+    self.clients.matchAll({ type: 'window', includeUncontrolled: true })
+      .then(list => {
+        for (const client of list) {
+          if ('focus' in client) return client.focus();
+        }
+        return self.clients.openWindow ? self.clients.openWindow('./') : undefined;
+      })
   );
 });
 

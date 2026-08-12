@@ -44,6 +44,16 @@ A hidden tab gets no animation frames and its timers are throttled to roughly on
 
 `onended` on the last tone records that it actually played, so returning to the app does not beep a second time. iOS suspends the context on background, freezing that clock; there the chime cannot play, `sounded` stays false, and the old behaviour stands — a catch-up beep if you return within 5 seconds, the "while you were away" note if you don't. The stale schedule is dropped before the context resumes, or it would fire at the wrong moment on return.
 
+## The notification
+
+The chime covers a phone you can hear. The notification covers one that is face down or on silent, and iOS, where the chime cannot play at all.
+
+There is no audio-thread trick available here — nothing can wake a hidden page at an exact moment — so this is a plain `setTimeout` and is best-effort by construction. Two things keep it honest. A rest is always started by a tap, so the page is visible and unthrottled when the timer is set, which is the case Chrome's intensive throttling spares. And `expire()` on return still ends the rest correctly if the timer was throttled or dropped, so the timer is an improvement on the experience and never load-bearing for correctness.
+
+A late banner is worse than none, so it is only raised while the page is hidden and only within `LATE` of the moment it was aimed at — a timer that arrives ten minutes after the rest ended is discarded. It is raised through the service worker registration, not `new Notification()`, which Android forbids; `sw.js` handles `notificationclick` by focusing the existing window rather than opening a second one. Coming back to the app closes the banner.
+
+Permission is requested on the tap that starts your first rest — a gesture, and the one moment where what it is for is obvious. Once per launch, not once per rest: dismissing the prompt leaves the permission at `default`, and nagging is how a browser decides to auto-deny you.
+
 ## Deploy
 
 ### 1. Push to GitHub
