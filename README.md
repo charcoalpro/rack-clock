@@ -44,7 +44,7 @@ git init
 git add .
 git commit -m "Rack Clock: buildless work/rest timer PWA"
 git branch -M main
-git remote add origin https://github.com/YOUR-USER/rack-clock.git
+git remote add origin https://github.com/charcoalpro/rack-clock.git
 git push -u origin main
 ```
 
