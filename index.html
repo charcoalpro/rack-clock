@@ -100,6 +100,13 @@ button:focus-visible{outline:3px solid var(--acc);outline-offset:3px;border-radi
 .clock.long{font-size:clamp(2rem,min(19vw,14dvh),7.4rem)} /* 100:00+ has 0.8px of slack otherwise */
 html[data-mode="rest"] .clock{color:var(--acc)}
 .hint{color:var(--mute);font-size:15px;max-width:24ch;text-align:center;line-height:1.45;min-height:2.9em}
+/* Total workout time. flex-none so a long session line never squeezes it,
+   and nowrap because "Session 999999 · Next: 3m big rest" is one line only. */
+/* One line at any width: on a 240px screen the session text gives up its
+   tail rather than wrap and push the clock down. min-width:0 is what lets a
+   flex child shrink below its content at all. */
+#metaText{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#total{flex:none;color:var(--chalk);padding-left:10px;white-space:nowrap}
 
 /* ---- controls -------------------------------------------------------- */
 .controls{display:grid;grid-template-columns:1fr 1fr;gap:12px}
@@ -167,7 +174,10 @@ html[data-mode="rest"] .clock{color:var(--acc)}
   </header>
 
   <div class="ladder mt26" id="ladder" data-live="0" aria-hidden="true"></div>
-  <p class="f14 mut mt12" id="meta">Session 0 · Next: 1m rest</p>
+  <p class="flex btw ctr f14 mut mt12" id="meta">
+    <span id="metaText">Session 0 · Next: 1m rest</span>
+    <span class="tab" id="total"></span>
+  </p>
 
   <main class="stage">
     <div class="state" id="state" aria-live="polite"><span class="dot"></span><span id="stateText">Ready</span></div>
@@ -202,7 +212,7 @@ html[data-mode="rest"] .clock{color:var(--acc)}
    *   clock) from replaying each other's side effects.
    *
    *     commit()  cold path: repaint + lock sync + persist + pump
-   *     render()  hot path : digits and tide only, pure, once per frame
+   *     render()  hot path : digits, total and tide, pure, once per frame
    *     expire()  the one place a rest is allowed to end
    *
    *   All timing derives from absolute Date.now() stamps, so throttled
@@ -224,21 +234,25 @@ html[data-mode="rest"] .clock{color:var(--acc)}
     sessions: 0,
     restEndsAt: 0,
     restTotal: 0,
+    began: 0,          // Date.now() at the first set of this workout, 0 = not started
     note: ''           // one-shot message for the hint line
   };
 
   var $ = function(id){ return document.getElementById(id); };
   var html = document.documentElement,
       clock = $('clock'), stateEl = $('state'), stateText = $('stateText'),
-      hint = $('hint'), meta = $('meta'), ladder = $('ladder'), tide = $('tide'),
+      hint = $('hint'), metaText = $('metaText'), total = $('total'),
+      ladder = $('ladder'), tide = $('tide'),
       primary = $('primary'), secondary = $('secondary'), resetBtn = $('resetBtn'),
       foot = $('foot'), themeColor = $('themeColor');
 
-  var lastSessions = -1, lastClock = null, raf = 0, armTimer = 0;
+  var lastSessions = -1, lastClock = null, lastTotal = null, raf = 0, armTimer = 0;
 
   /* ---------------- derived values ------------------------------------ */
   function workMs(){ return S.running ? S.elapsed + (Date.now() - S.resumedAt) : S.elapsed; }
   function restLeft(){ return S.mode === 'rest' ? Math.max(0, S.restEndsAt - Date.now()) : 0; }
+  // Wall clock since the first set: rests and pauses are still time in the gym.
+  function totalMs(){ return S.began ? Math.max(0, Date.now() - S.began) : 0; }
   function nextIsBig(){ return (S.sessions + 1) % CYCLE === 0; }
   function wantsLock(){ return S.running || S.mode === 'rest'; }
 
@@ -451,7 +465,7 @@ html[data-mode="rest"] .clock{color:var(--acc)}
     try{
       localStorage.setItem(STORE, JSON.stringify({
         v:1, m:S.mode, r:S.running, e:S.elapsed, a:S.resumedAt,
-        s:S.sessions, x:S.restEndsAt, t:S.restTotal, w:Date.now()
+        s:S.sessions, x:S.restEndsAt, t:S.restTotal, b:S.began, w:Date.now()
       }));
     }catch(e){}
   }
@@ -476,6 +490,11 @@ html[data-mode="rest"] .clock{color:var(--acc)}
     S.mode       = d.m === 'rest' ? 'rest' : 'work';
     S.restEndsAt = num(d.x, 0, MAXDATE);
     S.restTotal  = num(d.t, 0, 4 * 3600000);
+    // b is additive: a record written before it existed simply has no total,
+    // which beats bumping the version and throwing away a live workout. A
+    // stamp in the future would run the total backwards, so drop it.
+    S.began      = num(d.b, 0, MAXDATE);
+    if(S.began > Date.now()) S.began = 0;
 
     if(S.running && !S.resumedAt) S.running = false;
 
@@ -499,11 +518,15 @@ html[data-mode="rest"] .clock{color:var(--acc)}
     S.restEndsAt = 0; S.restTotal = 0;
   }
 
-  function startWork(){ S.note = ''; S.running = true; S.resumedAt = Date.now(); commit(); }
+  // The workout starts at whichever of these you reach first, and only once.
+  function markBegan(){ if(!S.began) S.began = Date.now(); }
+
+  function startWork(){ S.note = ''; markBegan(); S.running = true; S.resumedAt = Date.now(); commit(); }
   function pauseWork(){ S.note = ''; S.elapsed = workMs(); S.running = false; commit(); }
 
   function startRest(){
     S.note = '';
+    markBegan();
     S.elapsed = workMs(); S.running = false;         // freeze; no intermediate commit
     S.sessions += 1;
     S.restTotal  = (S.sessions % CYCLE === 0) ? BIG : SHORT;
@@ -531,7 +554,7 @@ html[data-mode="rest"] .clock{color:var(--acc)}
   }
 
   function resetAll(){
-    clearRest(); S.sessions = 0; S.note = '';
+    clearRest(); S.sessions = 0; S.began = 0; S.note = '';
     try{ localStorage.removeItem(STORE); }catch(e){}
     commit();
   }
@@ -565,7 +588,7 @@ html[data-mode="rest"] .clock{color:var(--acc)}
         : 'The work clock resets at zero.';
       primary.textContent   = 'Skip rest';
       secondary.textContent = 'Add 30s';
-      meta.textContent = 'Session ' + S.sessions + ' · ' + restLabel() + ' running';
+      metaText.textContent = 'Session ' + S.sessions + ' · ' + restLabel() + ' running';
       foot.textContent = 'Rest ends with three beeps';
     }else{
       stateText.textContent = S.running ? 'Working' : (S.elapsed > 0 ? 'Paused' : 'Ready');
@@ -575,7 +598,7 @@ html[data-mode="rest"] .clock{color:var(--acc)}
                          : 'Start the clock when you step under the bar.'));
       primary.textContent   = S.running ? 'Pause' : 'Start';
       secondary.textContent = 'Rest';
-      meta.textContent = 'Session ' + S.sessions + ' · Next: ' + (nextIsBig() ? '3m big rest' : '1m rest');
+      metaText.textContent = 'Session ' + S.sessions + ' · Next: ' + (nextIsBig() ? '3m big rest' : '1m rest');
       foot.textContent = 'Every 3rd rest is a 3-minute big rest';
     }
 
@@ -606,6 +629,11 @@ html[data-mode="rest"] .clock{color:var(--acc)}
       clock.textContent = text;
       clock.classList.toggle('long', text.length > 5);
     }
+
+    // Blank until the first set: a workout that has not started has no total.
+    var sum = S.began ? fmt(Math.floor(totalMs() / 1000)) : '';
+    if(sum !== lastTotal){ lastTotal = sum; total.textContent = sum; }
+
     if(html.getAttribute('data-flare') !== flare) html.setAttribute('data-flare', flare);
   }
 
@@ -622,7 +650,11 @@ html[data-mode="rest"] .clock{color:var(--acc)}
     (function loop(){
       if(expire()) return;                           // finishRest commits, which re-pumps
       render();
-      raf = (S.running || S.mode === 'rest') ? requestAnimationFrame(loop) : 0;
+      // The total keeps running between sets, so a paused workout is not idle
+      // any more — but a finished or reset one still is, and stops the loop.
+      // Deliberately not wantsLock(): a total ticking is no reason to hold
+      // the screen awake.
+      raf = (S.running || S.mode === 'rest' || S.began) ? requestAnimationFrame(loop) : 0;
     })();
   }
 

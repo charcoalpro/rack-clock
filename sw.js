@@ -1,7 +1,7 @@
 /* Rack Clock — cache-first service worker.
    Bump CACHE on every deploy: that single string is the whole release process. */
 
-const CACHE = 'rack-clock-v4';
+const CACHE = 'rack-clock-v5';
 
 const PRECACHE = [
   './',
