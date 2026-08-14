@@ -224,6 +224,7 @@ html[data-mode="rest"] .clock{color:var(--acc)}
   var STORE = 'rackclock.v1';
   var STALE   = 4 * 3600000;  // discard a saved workout older than this
   var MAX_SET = 2 * 3600000;  // a work clock this long means the app was killed mid-set
+  var MAX_WORK = 12 * 3600000;// bound on banked work time; no real workout comes near it
   var LATE    = 5000;         // don't beep for a rest that ended this long ago
 
   var S = {
@@ -234,7 +235,7 @@ html[data-mode="rest"] .clock{color:var(--acc)}
     sessions: 0,
     restEndsAt: 0,
     restTotal: 0,
-    began: 0,          // Date.now() at the first set of this workout, 0 = not started
+    worked: 0,         // banked work ms across finished sets, rests excluded
     note: ''           // one-shot message for the hint line
   };
 
@@ -251,8 +252,10 @@ html[data-mode="rest"] .clock{color:var(--acc)}
   /* ---------------- derived values ------------------------------------ */
   function workMs(){ return S.running ? S.elapsed + (Date.now() - S.resumedAt) : S.elapsed; }
   function restLeft(){ return S.mode === 'rest' ? Math.max(0, S.restEndsAt - Date.now()) : 0; }
-  // Wall clock since the first set: rests and pauses are still time in the gym.
-  function totalMs(){ return S.began ? Math.max(0, Date.now() - S.began) : 0; }
+  // Time under tension: banked sets plus the one on the clock. Rests and
+  // pauses are excluded, so this only moves while the work clock does.
+  function tensionMs(){ return S.worked + workMs(); }
+  function started(){ return S.worked > 0 || S.elapsed > 0 || S.running; }
   function nextIsBig(){ return (S.sessions + 1) % CYCLE === 0; }
   function wantsLock(){ return S.running || S.mode === 'rest'; }
 
@@ -465,7 +468,7 @@ html[data-mode="rest"] .clock{color:var(--acc)}
     try{
       localStorage.setItem(STORE, JSON.stringify({
         v:1, m:S.mode, r:S.running, e:S.elapsed, a:S.resumedAt,
-        s:S.sessions, x:S.restEndsAt, t:S.restTotal, b:S.began, w:Date.now()
+        s:S.sessions, x:S.restEndsAt, t:S.restTotal, k:S.worked, w:Date.now()
       }));
     }catch(e){}
   }
@@ -490,11 +493,11 @@ html[data-mode="rest"] .clock{color:var(--acc)}
     S.mode       = d.m === 'rest' ? 'rest' : 'work';
     S.restEndsAt = num(d.x, 0, MAXDATE);
     S.restTotal  = num(d.t, 0, 4 * 3600000);
-    // b is additive: a record written before it existed simply has no total,
-    // which beats bumping the version and throwing away a live workout. A
-    // stamp in the future would run the total backwards, so drop it.
-    S.began      = num(d.b, 0, MAXDATE);
-    if(S.began > Date.now()) S.began = 0;
+    // k is additive: a record written before it existed simply has no total,
+    // which beats bumping the version and throwing away a live workout. It is
+    // a duration, not a stamp — hours, not epoch milliseconds — so the clamp
+    // is what stops an older record's field from reading as a 48000-hour set.
+    S.worked     = num(d.k, 0, MAX_WORK);
 
     if(S.running && !S.resumedAt) S.running = false;
 
@@ -518,16 +521,16 @@ html[data-mode="rest"] .clock{color:var(--acc)}
     S.restEndsAt = 0; S.restTotal = 0;
   }
 
-  // The workout starts at whichever of these you reach first, and only once.
-  function markBegan(){ if(!S.began) S.began = Date.now(); }
-
-  function startWork(){ S.note = ''; markBegan(); S.running = true; S.resumedAt = Date.now(); commit(); }
+  function startWork(){ S.note = ''; S.running = true; S.resumedAt = Date.now(); commit(); }
   function pauseWork(){ S.note = ''; S.elapsed = workMs(); S.running = false; commit(); }
 
   function startRest(){
     S.note = '';
-    markBegan();
-    S.elapsed = workMs(); S.running = false;         // freeze; no intermediate commit
+    // The set is over: bank it before the clock is dropped. No intermediate
+    // commit, and nothing reads elapsed during a rest, so zeroing it here is
+    // the same reset the rest was going to do anyway.
+    S.worked += workMs();
+    S.elapsed = 0; S.running = false;
     S.sessions += 1;
     S.restTotal  = (S.sessions % CYCLE === 0) ? BIG : SHORT;
     S.restEndsAt = Date.now() + S.restTotal;
@@ -554,7 +557,7 @@ html[data-mode="rest"] .clock{color:var(--acc)}
   }
 
   function resetAll(){
-    clearRest(); S.sessions = 0; S.began = 0; S.note = '';
+    clearRest(); S.sessions = 0; S.worked = 0; S.note = '';
     try{ localStorage.removeItem(STORE); }catch(e){}
     commit();
   }
@@ -630,8 +633,9 @@ html[data-mode="rest"] .clock{color:var(--acc)}
       clock.classList.toggle('long', text.length > 5);
     }
 
-    // Blank until the first set: a workout that has not started has no total.
-    var sum = S.began ? fmt(Math.floor(totalMs() / 1000)) : '';
+    // Blank until the first set, and labelled: a bare figure next to a rest
+    // countdown would read as elapsed workout, which is what this is not.
+    var sum = started() ? 'work ' + fmt(Math.floor(tensionMs() / 1000)) : '';
     if(sum !== lastTotal){ lastTotal = sum; total.textContent = sum; }
 
     if(html.getAttribute('data-flare') !== flare) html.setAttribute('data-flare', flare);
@@ -650,11 +654,8 @@ html[data-mode="rest"] .clock{color:var(--acc)}
     (function loop(){
       if(expire()) return;                           // finishRest commits, which re-pumps
       render();
-      // The total keeps running between sets, so a paused workout is not idle
-      // any more — but a finished or reset one still is, and stops the loop.
-      // Deliberately not wantsLock(): a total ticking is no reason to hold
-      // the screen awake.
-      raf = (S.running || S.mode === 'rest' || S.began) ? requestAnimationFrame(loop) : 0;
+      // The total only moves while the work clock does, so idle stays idle.
+      raf = (S.running || S.mode === 'rest') ? requestAnimationFrame(loop) : 0;
     })();
   }
 

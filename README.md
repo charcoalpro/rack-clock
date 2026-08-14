@@ -15,7 +15,9 @@ _headers        Cloudflare Pages edge cache + security headers
 
 The row of graduation marks under the header is the session ladder: filled marks are sets you've banked, and every third mark is tall — that's a big rest. The upcoming mark blinks when the next rest is the long one.
 
-To the right of the session line is the **workout total** — wall-clock time since your first set, because rests and pauses are still time in the gym. It appears with that first set and clears on Reset. Being an absolute `Date.now()` stamp like everything else, it survives a relaunch and cannot drift. Records written before the field existed simply have no total rather than being thrown away.
+To the right of the session line is **time under tension** — `work 12:45`, the sum of your working sets with every rest and pause excluded. It moves only while the work clock moves, so it is frozen during a rest and frozen while paused, and it is labelled precisely because a bare figure next to a rest countdown would read as elapsed workout time, which is what it is not. It appears with your first set and clears on Reset.
+
+A set is banked into `worked` at the moment `startRest()` fires, which is the one point where a set is definitively over. That is also why a paused-and-resumed set counts once rather than twice: `workMs()` already folds the pause in, and it is read exactly once, on the way into the rest.
 
 The shell is height-capped at `100dvh` and never scrolls — a timer you have to scroll to read is useless mid-set. The clock is sized `min(27vw, 20dvh)` so height binds on a landscape phone, and two `max-height` breakpoints drop the footer, then the ladder and hint, rather than let anything spill. Verified at 20 viewport sizes from 240×320 up.
 
@@ -32,7 +34,7 @@ action()  ->  mutate S  ->  commit()  ->  paint()    full DOM update
                                           pump()      start/stop the rAF loop
 ```
 
-`render()` is the hot path — digits, the workout total and the tide, nothing else. It is a pure function of state: it writes the DOM and never transitions. A rest is allowed to end in exactly one place, `expire()`, which the frame loop calls before each render. Keeping those apart is what stops a repaint from re-entering `commit()`. One commit produces exactly one render, and the rAF loop stops entirely once nothing is live — which now includes the workout total, so a paused workout keeps the loop running and a reset one does not. It is deliberately not tied to `wantsLock()`: a total ticking is no reason to hold the screen awake.
+`render()` is the hot path — digits, time under tension and the tide, nothing else. It is a pure function of state: it writes the DOM and never transitions. A rest is allowed to end in exactly one place, `expire()`, which the frame loop calls before each render. Keeping those apart is what stops a repaint from re-entering `commit()`. One commit produces exactly one render, and the rAF loop stops entirely when the app is idle — time under tension advances only while the work clock does, so it needs no frames of its own and idle stays idle.
 
 Anything read back from `localStorage` is coerced and clamped in `restore()` before it reaches state — it is user-writable storage that outlives any given app version, so an incoherent record is dropped rather than trusted.
 
@@ -91,7 +93,7 @@ Open the `.pages.dev` URL on your phone. Android/Chrome offers "Install app"; iO
 
 ## Releasing changes
 
-Bump the `CACHE` constant in `sw.js` (`rack-clock-v1` → `v2`) on any deploy that changes `index.html`. If you ever change the shape of the persisted state, bump `STORE` in `index.html` too — `restore()` rejects any record whose `v` doesn't match. *Additive* fields are the exception: `began` was added without a bump because it defaults to 0 and an older record just shows no total, which beats discarding someone's live workout to gain a field they were never going to have. That's the entire release process — the old cache is deleted on activation and clients pick up the new shell on their next launch.
+Bump the `CACHE` constant in `sw.js` (`rack-clock-v1` → `v2`) on any deploy that changes `index.html`. If you ever change the shape of the persisted state, bump `STORE` in `index.html` too — `restore()` rejects any record whose `v` doesn't match. *Additive* fields are the exception: `worked` was added without a bump because it defaults to 0 and an older record just shows no total, which beats discarding someone's live workout to gain a field they were never going to have. It is written under a fresh key (`k`) rather than reusing a retired one — the previous field there held an epoch stamp, and read as a duration it would have claimed a 48,000-hour set. Retire keys, don't recycle them. That's the entire release process — the old cache is deleted on activation and clients pick up the new shell on their next launch.
 
 `_headers` deliberately keeps `index.html` and `sw.js` on `must-revalidate` at the browser while letting Cloudflare hold them at the edge (`CDN-Cache-Control`). Without that split, an unhashed single-file app can strand users on a stale build indefinitely.
 
